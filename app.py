@@ -11,6 +11,7 @@ st.set_page_config(
 import re
 from collections import Counter
 
+import anthropic
 import matplotlib.pyplot as plt
 import nltk
 import pandas as pd
@@ -133,7 +134,6 @@ def preprocess(text: str):
     return tokens
 
 
-
 def classify(sentence: str):
 
     doc = nlp(sentence.lower())
@@ -193,10 +193,8 @@ def classify(sentence: str):
     return cats
 
 
-
 def word_freq(tokens):
     return Counter(tokens)
-
 
 
 def concordance(text, keyword, width=60):
@@ -217,10 +215,8 @@ def concordance(text, keyword, width=60):
     return out
 
 
-
 def count_words(text):
     return len(text.split())
-
 
 
 def get_sentiment(text):
@@ -236,7 +232,6 @@ def get_sentiment(text):
     return "Neutral"
 
 
-
 def generate_ngrams(tokens, n=2, top_k=15):
 
     grams = ngrams(tokens, n)
@@ -250,7 +245,6 @@ def generate_ngrams(tokens, n=2, top_k=15):
         ],
         columns=["Phrase", "Frequency"]
     )
-
 
 
 def extract_entities(text):
@@ -278,6 +272,176 @@ def extract_entities(text):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Stories We Live By — Corpus Sample Helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def prepare_corpus_sample(text, max_chars=4000):
+    """
+    Takes a balanced sample from beginning, middle and end
+    of the corpus so large texts fit within the API context.
+    """
+    if len(text) <= max_chars:
+        return text
+
+    third = max_chars // 3
+
+    sample = (
+        text[:third]
+        + "\n...\n"
+        + text[len(text) // 2: len(text) // 2 + third]
+        + "\n...\n"
+        + text[-third:]
+    )
+
+    return sample
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stories We Live By — Claude API Function
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_stibbe_stories(corpus_text: str):
+    """
+    Calls the Claude API once per Stibbe story type and returns
+    a dictionary of {story_type: short_story_text}.
+    """
+
+    client = anthropic.Anthropic(
+        api_key=st.secrets["ANTHROPIC_API_KEY"]
+    )
+
+    sample = prepare_corpus_sample(corpus_text)
+
+    stibbe_prompts = {
+
+        "Framing Story": f"""
+You are an ecolinguist applying Arran Stibbe's Stories We Live By 
+framework from his 2015 book Ecolinguistics: Language, Ecology and 
+the Stories We Live By.
+
+Analyse the corpus below and write a short story of 3 to 5 sentences 
+that reveals the FRAMING STORY — how the topic is conceptually bounded, 
+what assumptions are built into the way the subject is presented, 
+and what kind of world the text takes for granted.
+
+Ground every sentence in specific evidence from the corpus.
+Write in plain English. Do not use bullet points.
+
+Corpus:
+{sample}
+""",
+
+        "Salience Story": f"""
+You are an ecolinguist applying Arran Stibbe's Stories We Live By 
+framework from his 2015 book Ecolinguistics: Language, Ecology and 
+the Stories We Live By.
+
+Analyse the corpus below and write a short story of 3 to 5 sentences 
+that reveals the SALIENCE STORY — what is foregrounded and made 
+highly visible in the text, and what is pushed into the background 
+or mentioned only briefly.
+
+Ground every sentence in specific evidence from the corpus.
+Write in plain English. Do not use bullet points.
+
+Corpus:
+{sample}
+""",
+
+        "Metaphor Story": f"""
+You are an ecolinguist applying Arran Stibbe's Stories We Live By 
+framework from his 2015 book Ecolinguistics: Language, Ecology and 
+the Stories We Live By.
+
+Analyse the corpus below and write a short story of 3 to 5 sentences 
+that reveals the METAPHOR STORY — the conceptual metaphors that 
+structure how the topic is perceived, what they reveal about 
+underlying attitudes, and what they conceal.
+
+Ground every sentence in specific evidence from the corpus.
+Write in plain English. Do not use bullet points.
+
+Corpus:
+{sample}
+""",
+
+        "Identity Story": f"""
+You are an ecolinguist applying Arran Stibbe's Stories We Live By 
+framework from his 2015 book Ecolinguistics: Language, Ecology and 
+the Stories We Live By.
+
+Analyse the corpus below and write a short story of 3 to 5 sentences 
+that reveals the IDENTITY STORY — how different groups, communities, 
+institutions and individuals are constructed and positioned in the text, 
+who is given a voice and who is spoken about but never heard.
+
+Ground every sentence in specific evidence from the corpus.
+Write in plain English. Do not use bullet points.
+
+Corpus:
+{sample}
+""",
+
+        "Erasure Story": f"""
+You are an ecolinguist applying Arran Stibbe's Stories We Live By 
+framework from his 2015 book Ecolinguistics: Language, Ecology and 
+the Stories We Live By.
+
+Analyse the corpus below and write a short story of 3 to 5 sentences 
+that reveals the ERASURE STORY — what voices, perspectives, living 
+beings or realities are systematically absent or written out of 
+the text entirely, and what effect this absence creates.
+
+Ground every sentence in specific evidence from the corpus.
+Write in plain English. Do not use bullet points.
+
+Corpus:
+{sample}
+""",
+
+        "Narrative Story": f"""
+You are an ecolinguist applying Arran Stibbe's Stories We Live By 
+framework from his 2015 book Ecolinguistics: Language, Ecology and 
+the Stories We Live By.
+
+Analyse the corpus below and write a short story of 3 to 5 sentences 
+that reveals the NARRATIVE STORY — the underlying cause and effect 
+chains in the text, who is constructed as active and who as passive, 
+who has agency, and what story arc the text follows overall.
+
+Ground every sentence in specific evidence from the corpus.
+Write in plain English. Do not use bullet points.
+
+Corpus:
+{sample}
+""",
+    }
+
+    stories = {}
+
+    for story_type, prompt in stibbe_prompts.items():
+
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=400,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+            )
+
+            stories[story_type] = response.content[0].text.strip()
+
+        except Exception as e:
+            stories[story_type] = f"Error generating this story: {str(e)}"
+
+    return stories
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🌍 Advanced Eco-CDA Analyzer")
@@ -293,12 +457,13 @@ st.markdown(
 - Corpus Analysis
 - Frequency Analysis
 - Concordance / KWIC Analysis
-- Stibbe Classification
+- Stibbe's Classification
 - Sentiment Analysis
 - Named Entity Recognition
 - N-gram Analysis
 - Word Clouds
 - CDA Interpretation
+- Stories We Live By
 - Downloadable Results
 """
 )
@@ -448,15 +613,16 @@ if not class_df.empty:
 # ─────────────────────────────────────────────────────────────────────────────
 # Tabs
 # ─────────────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
     [
         "📊 Corpus Overview",
         "📈 Frequency",
         "🔍 KWIC",
-        "🧠 Classification",
+        "🧠 Stibbe's Classification",   # ← renamed from Classification
         "😊 Sentiment",
         "🏷️ Named Entities",
         "🌍 CDA Insights",
+        "📖 Stories We Live By",         # ← new tab
     ]
 )
 
@@ -513,7 +679,7 @@ with tab2:
     # WORD CLOUD
     st.write("### Word Cloud")
 
-    wc = WordCloud(
+    wc_obj = WordCloud(
         width=1200,
         height=500,
         background_color="white"
@@ -521,7 +687,7 @@ with tab2:
 
     fig_wc, ax = plt.subplots(figsize=(14, 6))
 
-    ax.imshow(wc, interpolation="bilinear")
+    ax.imshow(wc_obj, interpolation="bilinear")
     ax.axis("off")
 
     st.pyplot(fig_wc)
@@ -573,11 +739,11 @@ with tab3:
             st.warning("No occurrences found.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TAB 4
+# TAB 4  —  Stibbe's Classification (renamed)
 # ─────────────────────────────────────────────────────────────────────────────
 with tab4:
 
-    st.header("Stibbe Classification")
+    st.header("Stibbe's Classification")
 
     if not class_df.empty:
 
@@ -720,10 +886,184 @@ with tab7:
         st.warning("No discourse patterns detected.")
 
 # ─────────────────────────────────────────────────────────────────────────────
+# TAB 8  —  Stories We Live By (new)
+# ─────────────────────────────────────────────────────────────────────────────
+with tab8:
+
+    st.header("📖 Stories We Live By")
+
+    st.markdown(
+        """
+        This feature generates short stories directly from your corpus,
+        each grounded in one of Arran Stibbe's analytical categories
+        from *Ecolinguistics: Language, Ecology and the Stories We Live By* (2015).
+
+        Every story is corpus-driven — the language, patterns and absences
+        in your text determine what each story reveals.
+        """
+    )
+
+    st.info(
+        "**Theoretical basis:** Arran Stibbe (2015) — "
+        "*Ecolinguistics: Language, Ecology and the Stories We Live By*"
+    )
+
+    # Story type descriptions shown before generation
+    STORY_DESCRIPTIONS = {
+        "Framing Story":   "How the topic is conceptually bounded and what assumptions are built in.",
+        "Salience Story":  "What is foregrounded and made visible versus pushed to the background.",
+        "Metaphor Story":  "The conceptual metaphors structuring perception and what they reveal or conceal.",
+        "Identity Story":  "How groups and individuals are constructed — who speaks, who is spoken about.",
+        "Erasure Story":   "What voices, perspectives and realities are systematically absent.",
+        "Narrative Story": "The cause-effect chains, who has agency, and the overall story arc.",
+    }
+
+    # Colour palette — one per story type
+    STORY_COLORS = {
+        "Framing Story":   "#e8f4f8",
+        "Salience Story":  "#f0f8e8",
+        "Metaphor Story":  "#fef9e7",
+        "Identity Story":  "#fce8f0",
+        "Erasure Story":   "#f0e8f8",
+        "Narrative Story": "#e8f8f0",
+    }
+
+    STORY_ICONS = {
+        "Framing Story":   "🖼️",
+        "Salience Story":  "🔦",
+        "Metaphor Story":  "🌊",
+        "Identity Story":  "👥",
+        "Erasure Story":   "🔇",
+        "Narrative Story": "📜",
+    }
+
+    # Show story type descriptions before the button is clicked
+    st.write("### The Six Story Types")
+
+    cols = st.columns(2)
+
+    for i, (stype, desc) in enumerate(STORY_DESCRIPTIONS.items()):
+
+        with cols[i % 2]:
+
+            icon = STORY_ICONS[stype]
+            color = STORY_COLORS[stype]
+
+            st.markdown(
+                f"""
+                <div style="
+                    background-color: {color};
+                    padding: 12px 16px;
+                    border-radius: 8px;
+                    margin-bottom: 10px;
+                    border-left: 4px solid #888;
+                ">
+                    <strong>{icon} {stype}</strong><br>
+                    <small>{desc}</small>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.write("---")
+
+    # Generate button
+    if st.button(
+        "✨ Generate Stories from Corpus",
+        type="primary",
+        use_container_width=True,
+    ):
+        # Check API key exists
+        if "ANTHROPIC_API_KEY" not in st.secrets:
+            st.error(
+                "Anthropic API key not found. "
+                "Please add ANTHROPIC_API_KEY to your .streamlit/secrets.toml file."
+            )
+
+        else:
+            with st.spinner(
+                "Reading your corpus through Stibbe's framework... "
+                "Generating six stories, please wait."
+            ):
+                stories = generate_stibbe_stories(all_text)
+
+            st.success("Six stories extracted from your corpus.")
+
+            st.write("### Stories from the Corpus")
+
+            for story_type, story_text in stories.items():
+
+                icon  = STORY_ICONS[story_type]
+                color = STORY_COLORS[story_type]
+                desc  = STORY_DESCRIPTIONS[story_type]
+
+                st.markdown(
+                    f"""
+                    <div style="
+                        background-color: {color};
+                        padding: 20px 24px;
+                        border-radius: 10px;
+                        margin: 12px 0;
+                        border-left: 5px solid #555;
+                    ">
+                        <h4 style="margin: 0 0 4px 0;">
+                            {icon} {story_type}
+                        </h4>
+                        <p style="
+                            margin: 0 0 10px 0;
+                            font-size: 0.82em;
+                            color: #666;
+                        ">
+                            {desc}
+                        </p>
+                        <p style="
+                            margin: 0;
+                            font-style: italic;
+                            line-height: 1.7;
+                        ">
+                            {story_text}
+                        </p>
+                        <p style="
+                            margin: 10px 0 0 0;
+                            font-size: 0.75em;
+                            color: #999;
+                        ">
+                            📚 Stibbe, A. (2015).
+                            <em>Ecolinguistics: Language, Ecology and
+                            the Stories We Live By.</em> Routledge.
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            # Download all stories as a text file
+            stories_text = ""
+
+            for stype, stext in stories.items():
+                stories_text += f"{stype}\n{'─' * 40}\n{stext}\n\n"
+
+            stories_text += (
+                "─" * 40
+                + "\nTheoretical basis: Stibbe, A. (2015). "
+                "Ecolinguistics: Language, Ecology and the "
+                "Stories We Live By. Routledge.\n"
+            )
+
+            st.download_button(
+                label="📥 Download All Stories",
+                data=stories_text,
+                file_name="stories_we_live_by.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Footer
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown("---")
 
 st.caption(
-    "Advanced Eco-CDA Analyzer • Streamlit + NLP + Ecolinguistics"
+    "Advanced Eco-CDA Analyzer • Streamlit + NLP + Ecolinguistics • "
+    "Based on Arran Stibbe's Stories We Live By (2015)"
 )
